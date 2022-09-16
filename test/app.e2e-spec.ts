@@ -6,7 +6,7 @@ import { AppModule } from './../src/app.module';
 describe('AppController (e2e)', () => {
   let app: INestApplication;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -15,43 +15,68 @@ describe('AppController (e2e)', () => {
     await AppModule.configApp(app).init();
   });
 
+  afterAll(async () => {
+    await app.close();
+  });
+
   describe('/coffees', () => {
     it('GET ALL', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/coffees')
-        .query({ limit: 20, offset: 10 })
-        .expect(200);
+      const limit = 5,
+        offset = 2;
 
-      console.log(res.text, res.body);
+      const getAll = async ({ limit, offset }: any) => {
+        const res = await request(app.getHttpServer())
+          .get('/coffees')
+          .set('Authorization', process.env.API_KEY)
+          .query({ limit, offset })
+          .expect(200);
+        if (limit) {
+          expect(res.body.length).toBeLessThanOrEqual(limit);
+        }
+        // console.log(res.body);
+      };
+
+      await getAll({ limit, offset });
+      await getAll({ limit });
+      await getAll({ offset });
     });
 
-    it('GET 1', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/coffees/1')
+    it('POST and GET', async () => {
+      const e = { name: 'Coffe1', brand: 'CoffeBrand1', flavors: ['sweet'] };
+
+      let res = await request(app.getHttpServer())
+        .post('/coffees')
+        .send(e)
+        .expect(201);
+
+      res = await request(app.getHttpServer())
+        .get('/coffees/' + res.body.id)
         .expect(200);
 
-      expect(res.body).toMatchObject({ id: 1 });
-
-      console.log(res.text, res.body, res.status);
+      expect(res.body).toMatchObject({
+        ...e,
+        flavors: e.flavors.map((name) => ({ name })),
+      });
     });
 
-    it('GET NOT FOUND', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/coffees/8964')
+    it('POST and DELETE and GET and Exception Filter', async () => {
+      const e = { name: 'Coffe1', brand: 'CoffeBrand1', flavors: ['sweet'] };
+
+      let res = await request(app.getHttpServer())
+        .post('/coffees')
+        .send(e)
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .delete('/coffees/' + res.body.id)
+        .expect(200);
+
+      res = await request(app.getHttpServer())
+        .get('/coffees/' + res.body.id)
         .expect(404);
 
-      expect(res.body).toMatchObject({ message: /not found/ });
-      console.log(res.text, res.body);
-    });
-
-    it('DELETE', async () => {
-      await request(app.getHttpServer()).delete('/coffees/1').expect(200);
-
-      const res = await request(app.getHttpServer())
-        .get('/coffees')
-        .expect(200);
-
-      console.log(res.text, res.body);
+      expect(res.body).toHaveProperty('message');
+      expect(res.body).toHaveProperty('timestamp');
     });
 
     it('POST Validate', async () => {
@@ -62,19 +87,15 @@ describe('AppController (e2e)', () => {
 
       expect(res.body).toMatchObject({
         message: [
-          'name must be a string',
+          // 'name must be a string',
+          //  transformOptions: {
+          //    enableImplicitConversion: true,
+          //    name已经被隐式转为string了 所以没有这一条
+          //  },
           'brand must be a string',
           'each value in flavors must be a string',
         ],
       });
-      console.log(res.text, res.body);
-
-      res = await request(app.getHttpServer())
-        .post('/coffees')
-        .send({ name: 'Coffe1', brand: 'CoffeBrand1', flavors: ['sweet'] })
-        .expect(201);
-
-      // const body1 = res.body;
 
       res = await request(app.getHttpServer())
         .post('/coffees')
@@ -85,26 +106,28 @@ describe('AppController (e2e)', () => {
           someProp: true,
         })
         .expect(400);
-
-      console.log(res.body);
-      // expect(res.body).toEqual(body1);
     });
 
-    it('PATCH Validate', async () => {
+    it('POST and PATCH', async () => {
+      const e = { name: 'Coffee1', brand: 'CoffeeBrand1', flavors: ['sweet'] };
+
       let res = await request(app.getHttpServer())
-        .patch('/coffees/10')
-        .send({ name: 1 })
-        .expect(400);
-
-      expect(res.body).toMatchObject({
-        message: ['name must be a string'],
-      });
-      console.log(res.text, res.body);
-
+        .post('/coffees')
+        .send(e)
+        .expect(201);
       res = await request(app.getHttpServer())
-        .patch('/coffees/10')
-        .send({ name: 'Blue Sky' })
+        .patch('/coffees/' + res.body.id)
+        .send({ name: 'Coffee2' })
         .expect(200);
+
+      expect(res.body.name).toBe('Coffee2');
+    });
+
+    it.skip('timeout interceptor', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/coffees/timeout')
+        .expect(408);
+      console.log(res.body);
     });
   });
 });
